@@ -1,21 +1,27 @@
 #!/usr/bin/env bash
 # 로봇 PC에서 collector 를 띄운다.
-# 컨테이너 네트워크가 host 가 아니면, 호스트 포트를 컨테이너 PUB 으로 넘긴다.
+# ZMQ_PUB_BIND=true 이고 컨테이너 네트워크가 host 가 아니면, 호스트 포트를 컨테이너 PUB 으로 넘긴다.
 set -eo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONTAINER="${AMR_CONTAINER:-camtic_dev}"
 PORT=5570
+PUB_BIND=true
+ENDPOINT=""
 
 if [[ -f "${ROOT}/.env" ]]; then
-  endpoint="$(grep -E '^[[:space:]]*ZMQ_PUB_ENDPOINT=' "${ROOT}/.env" | tail -1 | cut -d= -f2- | tr -d ' "'\''\r' || true)"
-  parsed="${endpoint##*:}"
+  ENDPOINT="$(grep -E '^[[:space:]]*ZMQ_PUB_ENDPOINT=' "${ROOT}/.env" | tail -1 | cut -d= -f2- | tr -d ' "'\''\r' || true)"
+  parsed="${ENDPOINT##*:}"
   if [[ "${parsed}" =~ ^[0-9]+$ ]]; then
     PORT="${parsed}"
   fi
+  bind_val="$(grep -E '^[[:space:]]*ZMQ_PUB_BIND=' "${ROOT}/.env" | tail -1 | cut -d= -f2- | tr -d ' "'\''\r' || true)"
+  if [[ "${bind_val}" == "false" || "${bind_val}" == "0" ]]; then
+    PUB_BIND=false
+  fi
 fi
 
-echo "container=${CONTAINER} pub_port=${PORT}"
+echo "container=${CONTAINER} pub_bind=${PUB_BIND} endpoint=${ENDPOINT:-<default>} pub_port=${PORT}"
 
 ready=""
 for _ in $(seq 1 30); do
@@ -48,7 +54,9 @@ cleanup() {
 trap cleanup EXIT
 trap 'cleanup; exit 143' INT TERM
 
-if [[ "${MODE}" != "host" ]]; then
+if [[ "${PUB_BIND}" == "false" ]]; then
+  echo "PUB 은 미들웨어로 connect 한다. 호스트 포트 relay 는 열지 않는다."
+elif [[ "${MODE}" != "host" ]]; then
   CIP="$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{"\n"}}{{end}}' "${CONTAINER}" | awk 'NF { print; exit }')"
   if [[ -z "${CIP}" ]]; then
     echo "컨테이너 IP 를 찾지 못했습니다. network=${MODE}" >&2

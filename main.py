@@ -194,9 +194,14 @@ def main() -> None:
     logging.getLogger("rclpy").setLevel(logging.WARNING)
     _log_ros_env()
     endpoint = settings.zmq.pub_endpoint
-    if "127.0.0.1" in endpoint or "localhost" in endpoint:
+    if settings.zmq.pub_bind and ("127.0.0.1" in endpoint or "localhost" in endpoint):
         logger.warning(
-            "ZMQ_PUB_ENDPOINT=%s 는 이 기계 안에서만 보인다. 엣지에서 붙으려면 tcp://0.0.0.0:5570",
+            "ZMQ_PUB_ENDPOINT=%s 에 bind 하면 이 기계 안에서만 보인다. 엣지에서 붙으려면 tcp://0.0.0.0:5570",
+            endpoint,
+        )
+    elif not settings.zmq.pub_bind and "0.0.0.0" in endpoint:
+        logger.warning(
+            "ZMQ_PUB_ENDPOINT=%s 는 connect 할 주소가 아니다. 미들웨어 주소(예: tcp://192.168.1.111:5556)를 적으세요.",
             endpoint,
         )
     logger.info(
@@ -220,7 +225,10 @@ def main() -> None:
         zmq.connect()
     except ZmqClientError as exc:
         logger.error("%s", exc)
-        logger.error("ZMQ_PUB_ENDPOINT 포트가 이미 쓰이면 .env 에서 번호를 바꾸세요.")
+        if settings.zmq.pub_bind:
+            logger.error("ZMQ_PUB_ENDPOINT 포트가 이미 쓰이면 .env 에서 번호를 바꾸세요.")
+        else:
+            logger.error("ZMQ_PUB_ENDPOINT 가 미들웨어 SUB 주소인지 확인하세요.")
         raise SystemExit(1) from exc
 
     cmd_thread = None
