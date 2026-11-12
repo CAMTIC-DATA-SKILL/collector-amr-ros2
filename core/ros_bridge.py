@@ -16,7 +16,14 @@ from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPo
 from rosidl_runtime_py.utilities import get_message
 
 from config import settings
-from core.samples import Snapshot, assemble_samples, flatten_scalars, samples_from_odometry, samples_from_pose
+from core.samples import (
+    Snapshot,
+    assemble_samples,
+    flatten_scalars,
+    samples_from_odometry,
+    samples_from_pose,
+    samples_from_scan,
+)
 
 logger = logging.getLogger("collector")
 
@@ -72,7 +79,7 @@ class AmrNode(Node):
         self._odom: Snapshot | None = None
         self._scout: Snapshot | None = None
         self._amcl: Snapshot | None = None
-        self._scan_mono: float | None = None
+        self._scan: Snapshot | None = None
 
     def refresh_subscriptions(self) -> None:
         for spec in self._specs:
@@ -133,7 +140,9 @@ class AmrNode(Node):
         now = time.monotonic()
         try:
             if key == "scan":
-                self._scan_mono = now
+                samples = samples_from_scan(msg)
+                if samples:
+                    self._scan = Snapshot(mono=now, samples=tuple(samples))
                 return
             if key == "odom":
                 samples = samples_from_odometry(msg)
@@ -178,13 +187,11 @@ class AmrNode(Node):
             odom=self._odom,
             scout=self._scout,
             amcl=self._amcl,
-            scan_mono=self._scan_mono,
+            scan=self._scan,
         )
 
     def _mono_for(self, key: str) -> float | None:
-        if key == "scan":
-            return self._scan_mono
-        snapshot = {"odom": self._odom, "scout": self._scout, "amcl": self._amcl}.get(key)
+        snapshot = {"odom": self._odom, "scout": self._scout, "amcl": self._amcl, "scan": self._scan}.get(key)
         return None if snapshot is None else snapshot.mono
 
     def wait_status(self, now: float) -> str:

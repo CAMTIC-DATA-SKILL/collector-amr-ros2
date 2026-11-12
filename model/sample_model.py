@@ -8,10 +8,11 @@ class PointType(str, Enum):
     BOOL = "bool"
     I64 = "i64"
     F64 = "f64"
+    F64_ARRAY = "f64[]"
     STR = "str"
 
 
-Value = bool | int | float | str | None
+Value = bool | int | float | str | list[float] | None
 
 
 class Sample(BaseModel):

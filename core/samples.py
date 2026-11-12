@@ -158,6 +158,69 @@ def samples_from_odometry(msg: object) -> list[Sample]:
     return _dedupe([point for point in points if point is not None])
 
 
+def samples_from_scan(msg: object) -> list[Sample]:
+    """LaserScan 의 거리·강도 배열과 각도 스칼라. 무한대는 range_max/range_min 으로 바꾼다."""
+    samples: list[Sample] = []
+    for name in (
+        "angle_min",
+        "angle_max",
+        "angle_increment",
+        "time_increment",
+        "scan_time",
+        "range_min",
+        "range_max",
+    ):
+        point = _f64(f"scan_{name}", getattr(msg, name, None))
+        if point is not None:
+            samples.append(point)
+    range_min = getattr(msg, "range_min", None)
+    range_max = getattr(msg, "range_max", None)
+    ranges = _float_array(getattr(msg, "ranges", None), range_min=range_min, range_max=range_max)
+    if ranges:
+        samples.append(_array("scan_ranges", ranges))
+    intensities = _float_array(getattr(msg, "intensities", None), range_min=None, range_max=None)
+    if intensities:
+        samples.append(_array("scan_intensities", intensities))
+    return samples
+
+
+def _array(addr: str, value: list[float]) -> Sample:
+    return Sample(addr=addr, name=addr, type=PointType.F64_ARRAY, value=value, error=None)
+
+
+def _finite(value: object) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, numbers.Real):
+        return None
+    number = float(value)
+    if not math.isfinite(number):
+        return None
+    return number
+
+
+def _float_array(value: object, *, range_min: object, range_max: object) -> list[float] | None:
+    if not _is_sequence(value):
+        return None
+    items = list(value)  # type: ignore[arg-type]
+    if not items:
+        return None
+    hi = _finite(range_max)
+    lo = _finite(range_min)
+    out: list[float] = []
+    for item in items:
+        if isinstance(item, bool) or not isinstance(item, numbers.Real):
+            return None
+        number = float(item)
+        if not math.isfinite(number):
+            if number > 0 and hi is not None:
+                number = hi
+            elif lo is not None:
+                number = lo
+            else:
+                number = 0.0
+        out.append(number)
+    return out
+
+
 def samples_from_pose(msg: object, prefix: str) -> list[Sample]:
     pose = _pose_message(msg)
     if pose is None:
@@ -194,15 +257,15 @@ def assemble_samples(
     odom: Snapshot | None,
     scout: Snapshot | None,
     amcl: Snapshot | None,
-    scan_mono: float | None,
+    scan: Snapshot | None,
 ) -> tuple[list[Sample], bool, str | None]:
-    """코어 토픽이 살아 있으면 스칼라 샘플을 만든다. 아니면 DATA 없이 E-1003."""
+    """코어 토픽이 살아 있으면 샘플을 만든다. 아니면 DATA 없이 E-1003."""
     odom_ok = _fresh(odom, now, stale_sec)
     scout_ok = _fresh(scout, now, stale_sec)
     if not (odom_ok or scout_ok):
         return [], False, WAIT_REASON
     amcl_ok = _fresh(amcl, now, stale_sec)
-    scan_ok = scan_mono is not None and (now - scan_mono) <= stale_sec
+    scan_ok = _fresh(scan, now, stale_sec)
     samples: list[Sample] = []
     if odom_ok and odom is not None:
         samples.extend(odom.samples)
@@ -210,6 +273,8 @@ def assemble_samples(
         samples.extend(scout.samples)
     if amcl_ok and amcl is not None:
         samples.extend(amcl.samples)
+    if scan_ok and scan is not None:
+        samples.extend(scan.samples)
     samples.extend(
         [
             _bit("wheel_odom_ok", odom_ok),

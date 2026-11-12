@@ -13,7 +13,14 @@ from uuid import uuid4
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from core.samples import Snapshot, assemble_samples, flatten_scalars, samples_from_odometry, yaw_from_quaternion
+from core.samples import (
+    Snapshot,
+    assemble_samples,
+    flatten_scalars,
+    samples_from_odometry,
+    samples_from_scan,
+    yaw_from_quaternion,
+)
 from core.zeromq_client.config import ZmqConfig
 from core.zeromq_client.sub_client import ZmqSubClient
 from core.zeromq_client.topics import topic_for
@@ -108,7 +115,7 @@ def check_assemble() -> None:
     now = 100.0
     odom = Snapshot(mono=now, samples=tuple(samples_from_odometry(_odom())))
     samples, ok, reason = assemble_samples(
-        now=now, stale_sec=3.0, odom=odom, scout=None, amcl=None, scan_mono=now - 10.0
+        now=now, stale_sec=3.0, odom=odom, scout=None, amcl=None, scan=None
     )
     found = _by_addr(samples)
     if not ok or reason is not None:
@@ -118,10 +125,33 @@ def check_assemble() -> None:
     if found["amcl_ok"].value is not False or found["scout_status_ok"].value is not False:
         raise AssertionError("status bits")
     stale, stale_ok, stale_reason = assemble_samples(
-        now=now, stale_sec=3.0, odom=Snapshot(mono=now - 5.0, samples=odom.samples), scout=None, amcl=None, scan_mono=None
+        now=now, stale_sec=3.0, odom=Snapshot(mono=now - 5.0, samples=odom.samples), scout=None, amcl=None, scan=None
     )
     if stale or stale_ok or stale_reason != "E-1003":
         raise AssertionError((stale, stale_ok, stale_reason))
+
+
+def check_scan() -> None:
+    msg = SimpleNamespace(
+        angle_min=-1.0,
+        angle_max=1.0,
+        angle_increment=0.5,
+        time_increment=0.0,
+        scan_time=0.1,
+        range_min=0.05,
+        range_max=12.0,
+        ranges=[1.0, float("inf"), 3.5],
+        intensities=[0.0, 4.0],
+    )
+    found = _by_addr(samples_from_scan(msg))
+    if found["scan_ranges"].type.value != "f64[]":
+        raise AssertionError(found["scan_ranges"].type)
+    if list(found["scan_ranges"].value) != [1.0, 12.0, 3.5]:
+        raise AssertionError(found["scan_ranges"].value)
+    if list(found["scan_intensities"].value) != [0.0, 4.0]:
+        raise AssertionError(found["scan_intensities"].value)
+    if found["scan_angle_min"].value != -1.0 or found["scan_range_max"].value != 12.0:
+        raise AssertionError("scan scalars")
 
 
 def check_wire() -> None:
@@ -183,7 +213,7 @@ def check_zmq() -> None:
 
 
 def main() -> None:
-    checks = [check_yaw, check_odom, check_status_skips_arrays, check_assemble, check_wire, check_zmq]
+    checks = [check_yaw, check_odom, check_status_skips_arrays, check_scan, check_assemble, check_wire, check_zmq]
     failed = []
     for check in checks:
         try:

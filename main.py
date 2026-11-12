@@ -51,7 +51,31 @@ def emit(zmq: ZeroMqClient, msg_type: MsgTypeEnum, body: BaseModel, *, gateway_a
     except ZmqClientError as exc:
         logger.warning("[%s] zmq pub failed: %s", msg_type.value.upper(), exc)
         return
+    if msg_type is MsgTypeEnum.DATA and _has_long_array(body):
+        logger.info("[%s] %s", msg_type.value.upper(), _data_brief(body))
+        logger.debug("[%s] %s", msg_type.value.upper(), payload)
+        return
     logger.info("[%s] %s", msg_type.value.upper(), payload)
+
+
+def _has_long_array(body: BaseModel) -> bool:
+    samples = getattr(body, "samples", None)
+    if not isinstance(samples, list):
+        return False
+    return any(isinstance(getattr(sample, "value", None), list) and len(sample.value) > 16 for sample in samples)
+
+
+def _data_brief(body: BaseModel) -> str:
+    samples = getattr(body, "samples", [])
+    parts: list[str] = []
+    for sample in samples:
+        value = getattr(sample, "value", None)
+        addr = getattr(sample, "addr", "")
+        if isinstance(value, list):
+            parts.append(f"{addr}=n{len(value)}")
+        elif addr in {"battery_voltage", "error_code", "odom_x", "odom_y", "odom_yaw", "amcl_x", "amcl_y"}:
+            parts.append(f"{addr}={value}")
+    return " ".join(parts) if parts else f"samples={len(samples)}"
 
 
 def emit_health(zmq: ZeroMqClient, *, device_ok: bool, reason: str | None) -> None:

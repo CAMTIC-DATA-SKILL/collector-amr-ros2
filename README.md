@@ -23,6 +23,8 @@ middleware_edge_forwarder  ── OPC UA / MQTT
 | `actuator_states_0_temperature` 처럼 인덱스 붙은 이름 | 길이 8 이하인 상태 배열만 |
 | `odom_x` `odom_y` `odom_yaw` `odom_vx` `odom_wz` | `/wheel_odom`. yaw 는 rad |
 | `amcl_x` `amcl_y` `amcl_yaw` | `/amcl_pose`. 자율주행일 때만 |
+| `scan_ranges` `scan_intensities` | `/scan` 최신 프레임. `f64[]`. 무한대는 `range_max`/`range_min`으로 바꾼다 |
+| `scan_angle_min` `scan_angle_max` `scan_range_min` `scan_range_max` | `/scan` 각도·거리 한계 |
 | `wheel_odom_ok` `scout_status_ok` `amcl_ok` `scan_ok` | 최근 `STALE_SEC` 안에 메시지가 있었는지 |
 
 `/wheel_odom` 과 `/scout_status` 가 둘 다 끊기면 DATA 를 멈추고 HEALTH `device_ok=false`, `reason=E-1003` 을 보낸다. SLAM 중에는 `amcl_ok=false` 인 채로 나머지를 보낸다.
