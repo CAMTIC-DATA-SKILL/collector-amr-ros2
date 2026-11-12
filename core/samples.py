@@ -15,6 +15,8 @@ _MAX_STR = 200
 _ADDR_UNSAFE = re.compile(r"[^A-Za-z0-9_]+")
 
 WAIT_REASON = "E-1003"
+# /amcl_pose 는 transient local 이라 정지 중에는 새 메시지가 드물다. 3초면 직전 위치가 빠진다.
+AMCL_HOLD_SEC = 30.0
 
 
 @dataclass(frozen=True)
@@ -33,9 +35,16 @@ def _public_name(slot: str) -> str:
     return slot
 
 
-def _is_message(value: object) -> bool:
+def _field_slots(value: object) -> tuple[str, ...] | None:
+    """ROS 2 메시지 __slots__ 는 Humble 에서 list 다. tuple 만 보면 필드가 전부 빠진다."""
     slots = getattr(value, "__slots__", None)
-    return isinstance(slots, tuple) and bool(slots) and not isinstance(value, type)
+    if isinstance(value, type) or not isinstance(slots, (list, tuple)) or not slots:
+        return None
+    return tuple(str(slot) for slot in slots)
+
+
+def _is_message(value: object) -> bool:
+    return _field_slots(value) is not None
 
 
 def _is_sequence(value: object) -> bool:
@@ -74,8 +83,8 @@ def flatten_scalars(msg: object, prefix: str = "", depth: int = 0) -> list[Sampl
     """메시지 슬롯의 스칼라만 샘플로 만든다. 길이 8 을 넘는 배열은 버린다."""
     if depth > 1:
         return []
-    slots = getattr(msg, "__slots__", None)
-    if not isinstance(slots, tuple):
+    slots = _field_slots(msg)
+    if slots is None:
         return []
     samples: list[Sample] = []
     for slot in slots:
@@ -264,7 +273,7 @@ def assemble_samples(
     scout_ok = _fresh(scout, now, stale_sec)
     if not (odom_ok or scout_ok):
         return [], False, WAIT_REASON
-    amcl_ok = _fresh(amcl, now, stale_sec)
+    amcl_ok = _fresh(amcl, now, max(stale_sec, AMCL_HOLD_SEC))
     scan_ok = _fresh(scan, now, stale_sec)
     samples: list[Sample] = []
     if odom_ok and odom is not None:

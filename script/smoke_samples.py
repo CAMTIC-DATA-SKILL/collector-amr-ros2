@@ -18,6 +18,7 @@ from core.samples import (
     assemble_samples,
     flatten_scalars,
     samples_from_odometry,
+    samples_from_pose,
     samples_from_scan,
     yaw_from_quaternion,
 )
@@ -74,6 +75,97 @@ def _odom():
 
 def _by_addr(samples: list[Sample]) -> dict[str, Sample]:
     return {sample.addr: sample for sample in samples}
+
+
+class _Light:
+    __slots__ = ["_mode"]
+
+    def __init__(self, mode: int) -> None:
+        self._mode = mode
+
+
+class _Actuator:
+    __slots__ = ["_rpm", "_current"]
+
+    def __init__(self, rpm: int, current: float) -> None:
+        self._rpm = rpm
+        self._current = current
+
+
+class _ScoutListSlots:
+    """Humble scout_msgs 는 __slots__ 가 list 다."""
+
+    __slots__ = [
+        "_header",
+        "_linear_velocity",
+        "_angular_velocity",
+        "_vehicle_state",
+        "_control_mode",
+        "_error_code",
+        "_battery_voltage",
+        "_actuator_states",
+        "_light_control_enabled",
+        "_front_light_state",
+        "_rear_light_state",
+    ]
+
+    def __init__(self) -> None:
+        self._header = _Header()
+        self._linear_velocity = 0.1
+        self._angular_velocity = -0.2
+        self._vehicle_state = 1
+        self._control_mode = 2
+        self._error_code = 0
+        self._battery_voltage = 24.8
+        self._actuator_states = [_Actuator(10, 1.5), _Actuator(11, 1.6)]
+        self._light_control_enabled = True
+        self._front_light_state = _Light(1)
+        self._rear_light_state = _Light(0)
+
+
+def check_scout_list_slots() -> None:
+    found = _by_addr(flatten_scalars(_ScoutListSlots()))
+    for addr in (
+        "battery_voltage",
+        "error_code",
+        "linear_velocity",
+        "vehicle_state",
+        "actuator_states_0_rpm",
+        "actuator_states_0_current",
+        "front_light_state_mode",
+        "light_control_enabled",
+    ):
+        if addr not in found:
+            raise AssertionError(sorted(found))
+    if found["battery_voltage"].value != 24.8 or found["error_code"].value != 0:
+        raise AssertionError((found["battery_voltage"], found["error_code"]))
+    if "frame_id" in found:
+        raise AssertionError("header leaked")
+
+
+def check_amcl_hold() -> None:
+    now = 100.0
+    odom = Snapshot(mono=now, samples=tuple(samples_from_odometry(_odom())))
+    pose = SimpleNamespace(
+        pose=SimpleNamespace(
+            pose=SimpleNamespace(
+                position=SimpleNamespace(x=0.7, y=0.2, z=0.0),
+                orientation=SimpleNamespace(x=0.0, y=0.0, z=0.0, w=1.0),
+            )
+        )
+    )
+    held = Snapshot(mono=now - 10.0, samples=tuple(samples_from_pose(pose, "amcl")))
+    found = _by_addr(
+        assemble_samples(now=now, stale_sec=3.0, odom=odom, scout=None, amcl=held, scan=None)[0]
+    )
+    if "amcl_x" not in found or found["amcl_ok"].value is not True:
+        raise AssertionError(sorted(found))
+    expired = Snapshot(mono=now - 31.0, samples=held.samples)
+    found = _by_addr(
+        assemble_samples(now=now, stale_sec=3.0, odom=odom, scout=None, amcl=expired, scan=None)[0]
+    )
+    if "amcl_x" in found or found["amcl_ok"].value is not False:
+        raise AssertionError(sorted(found))
 
 
 def check_yaw() -> None:
@@ -213,7 +305,17 @@ def check_zmq() -> None:
 
 
 def main() -> None:
-    checks = [check_yaw, check_odom, check_status_skips_arrays, check_scan, check_assemble, check_wire, check_zmq]
+    checks = [
+        check_yaw,
+        check_odom,
+        check_status_skips_arrays,
+        check_scout_list_slots,
+        check_amcl_hold,
+        check_scan,
+        check_assemble,
+        check_wire,
+        check_zmq,
+    ]
     failed = []
     for check in checks:
         try:
