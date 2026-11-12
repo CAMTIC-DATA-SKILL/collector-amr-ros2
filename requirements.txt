@@ -1,0 +1,11 @@
+# model/ 스키마 검증
+pydantic>=2,<3
+
+# .env 로딩 (config.py)
+python-dotenv>=1.0
+
+# 게이트웨이 IPC (core/zeromq_client)
+pyzmq>=26
+
+# rclpy, nav_msgs, geometry_msgs 는 pip 로 넣지 않는다.
+# camtic_dev 의 ROS 2 Humble (/opt/ros/humble) 을 source 한 파이썬으로 실행한다.

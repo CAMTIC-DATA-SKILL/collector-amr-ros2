@@ -1,0 +1,22 @@
+# /home/camtic 아래 체크아웃을 로봇 PC에서 등록하려면 service_add.sh 를 사용한다.
+# 이 파일은 경로 예시이다. 컨테이너 안에서 systemd 를 쓰지 않는다.
+[Unit]
+Description=AMR ROS 2 collector (camtic_dev -> ZeroMQ)
+After=docker.service network-online.target
+Wants=docker.service network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/camtic/collector-amr-ros2
+ExecStart=/bin/bash /home/camtic/collector-amr-ros2/host_start.sh
+Restart=always
+RestartSec=5
+TimeoutStopSec=20
+KillMode=control-group
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=collector-amr-ros2
+
+[Install]
+WantedBy=multi-user.target
